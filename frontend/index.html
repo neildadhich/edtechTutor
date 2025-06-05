@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Slide Viewer & Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>PDF Slideshow with Gemini Chat</h1>
+    </header>
+
+    <main>
+        <section id="upload-section">
+            <h2>Upload PDF</h2>
+            <input type="file" id="pdf-upload" accept=".pdf">
+            <button id="upload-button">Upload & Display</button>
+            <p id="upload-status"></p>
+        </section>
+
+        <section id="slideshow-section" class="hidden">
+            <h2>Slides</h2>
+            <div id="slide-container">
+                <img id="current-slide-image" src="#" alt="Current Slide">
+            </div>
+            <div id="slide-navigation">
+                <button id="prev-slide">Previous</button>
+                <span id="slide-info">Slide 0 of 0</span>
+                <button id="next-slide">Next</button>
+            </div>
+            <button id="present-slide-button" class="slide-action-button">🎤 Present Slide</button>
+        </section>
+
+        <section id="chat-section" class="hidden">
+            <h2>Chat about this Slide</h2>
+            <div id="chat-history">
+                <!-- Chat messages will appear here -->
+            </div>
+            <div id="chat-input-area">
+                <input type="text" id="chat-message" placeholder="Ask a question about this slide...">
+                <button id="send-chat-button">Send</button>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Powered by Gemini</p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html> 

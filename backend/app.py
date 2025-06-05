@@ -33,24 +33,17 @@ os.makedirs(AUDIO_FOLDER, exist_ok=True) # Create audio folder
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     print("FATAL: GEMINI_API_KEY not found in .env file. Please set it.")
-    # For a real app, you might raise an exception or exit here
 else:
-    try:
-        # Initialize the Gemini client. This might be implicitly done by genai.configure as well
-        # but explicit client can be useful for specific model calls.
-        # We will use genai.GenerativeModel for simplicity unless specific client features are needed.
-        genai.configure(api_key=GEMINI_API_KEY)
-        print("Gemini API configured.")
-    except Exception as e:
-        print(f"Error configuring Gemini API: {e}")
+    genai.configure(api_key=GEMINI_API_KEY)
+    print("Gemini API configured.")
 
 # Helper function to save WAV file
-def save_wave_file(filename, pcm_data, channels=1, rate=24000, sample_width=2):
+def wave_file(filename, pcm, channels=1, rate=24000, sample_width=2):
    with wave.open(filename, "wb") as wf:
       wf.setnchannels(channels)
       wf.setsampwidth(sample_width)
       wf.setframerate(rate)
-      wf.writeframes(pcm_data)
+      wf.writeframes(pcm)
 
 # --- Helper Functions ---
 def pdf_to_images(pdf_path, output_folder):
@@ -168,22 +161,28 @@ def chat_with_gemini():
 
 @app.route('/generate-slide-script', methods=['POST'])
 def generate_slide_script():
+    print("\n--- Received request for /generate-slide-script ---")
     data = request.get_json()
     if not data:
+        print("Error: No data provided")
         return jsonify({'error': 'No data provided'}), 400
     slide_image_path = data.get('slide_image_path')
+    print(f"Slide image path: {slide_image_path}")
     if not slide_image_path:
+        print("Error: Missing slide_image_path")
         return jsonify({'error': 'Missing slide_image_path'}), 400
 
     if not GEMINI_API_KEY:
+        print("Error: Gemini API key not configured.")
         return jsonify({'error': 'Gemini API key not configured.'}), 500
     
     full_slide_image_path = os.path.join(app.config['STATIC_FOLDER'], slide_image_path)
     if not os.path.exists(full_slide_image_path):
+        print(f"Error: Slide image not found at {full_slide_image_path}")
         return jsonify({'error': f'Slide image not found at {full_slide_image_path}'}), 404
 
     try:
-        # 1. Generate script text using Gemini (e.g., gemini-1.5-flash-latest)
+        print("Step 1: Generating script text...")
         script_generation_model = genai.GenerativeModel('gemini-1.5-flash-latest')
         slide_image_blob = {
             'mime_type': 'image/png',
@@ -198,51 +197,75 @@ def generate_slide_script():
             "Provide ONLY the teaching script text:"
         ]
         script_response = script_generation_model.generate_content(script_prompt_parts)
+        print("Script generation API call complete.")
         script_text = ""
         if script_response.parts:
             script_text = "".join(part.text for part in script_response.parts if hasattr(part, 'text'))
+            print(f"Generated script text (length: {len(script_text)}):")
+            print(f"'{script_text[:200]}...'") # Print first 200 chars
         else:
             error_msg = "Could not generate a script text for this slide."
             if script_response.prompt_feedback and script_response.prompt_feedback.block_reason:
                 error_msg += f" Reason: {script_response.prompt_feedback.block_reason_message}"
+            print(f"Error during script generation: {error_msg}")
             return jsonify({'error': error_msg}), 500
 
         if not script_text.strip():
-             return jsonify({'error': "Generated script text was empty."}), 500
+            print("Error: Generated script text was empty.")
+            return jsonify({'error': "Generated script text was empty."}), 500
 
-        # 2. Convert script text to speech using Gemini TTS model
-        tts_model = genai.GenerativeModel("gemini-pro")
+        print("\nStep 2: Converting script text to speech...")
+        tts_model = genai.GenerativeModel("gemini-2.5-flash-preview-tts")
         
         try:
-            # Create a structured prompt for TTS
-            tts_prompt = f"""
-            Please convert the following text to natural, engaging speech. Use a clear, professional tone:
-
-            {script_text}
-            """
+            tts_generation_config = {
+                "response_modalities": ["AUDIO"],
+                "speech_config": {
+                    "voice_config": {
+                        "prebuilt_voice_config": {
+                            "voice_name": "Kore"
+                        }
+                    }
+                }
+            }
+            print(f"TTS generation for script: '{script_text[:100]}...'")
+            tts_response = tts_model.generate_content(
+                contents=f"Say naturally and professionally: {script_text}",
+                generation_config=tts_generation_config
+            )
+            print("TTS generation API call complete.")
             
-            tts_response = tts_model.generate_content(tts_prompt)
+            audio_data = tts_response.candidates[0].content.parts[0].inline_data.data
             
-            if not tts_response.text:
-                return jsonify({'error': 'TTS generation failed to produce text.'}), 500
-
-            # For now, we'll return just the text since TTS is not yet fully supported
+            audio_filename = f"script_audio_{uuid.uuid4()}.wav"
+            audio_path = os.path.join(app.config['AUDIO_FOLDER'], audio_filename)
+            
+            print(f"Saving audio file to: {audio_path}")
+            wave_file(audio_path, audio_data)
+            print("Audio file saved.")
+            
+            print("--- Request to /generate-slide-script completed successfully ---")
             return jsonify({
                 'script_text': script_text,
-                'message': 'TTS functionality is currently being updated to support the latest Gemini API.'
+                'audio_url': f'/static/audio/{audio_filename}'
             }), 200
 
         except Exception as e:
             print(f"Error during Gemini TTS generation: {e}")
             import traceback
             traceback.print_exc()
-            return jsonify({'error': f'TTS generation failed: {str(e)}'}), 500
+            print("--- Request to /generate-slide-script completed with TTS error (returning script) ---")
+            return jsonify({
+                'script_text': script_text,
+                'error': f'TTS generation failed: {str(e)}' 
+            }), 200
 
     except Exception as e:
-        print(f"Error in Gemini script generation or TTS (outer try-except): {e}")
+        print(f"Error in Gemini script generation (outer try-except): {e}")
         import traceback
         traceback.print_exc() 
-        return jsonify({'error': f'Error generating audio script with Gemini TTS: {str(e)}'}), 500
+        print("--- Request to /generate-slide-script failed (outer try-except) ---")
+        return jsonify({'error': f'Error generating script: {str(e)}'}), 500
 
 
 # Serve slide images
